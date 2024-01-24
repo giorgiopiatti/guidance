@@ -80,7 +80,7 @@ def gen(lm, name=None, *, max_tokens=1000, list_append=False, regex=None,
     """
     # TODO: expand the tools doc string
     assert n == 1, "We still need to add support for n>1! Consider putting your gen call in a loop for now."
-    assert top_p == 1, "We still need to add support for top_p != 1!"
+    # assert top_p == 1, "We still need to add support for top_p != 1!"
     
     logger.debug(f'start gen(name="{name}")')
 

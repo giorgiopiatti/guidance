@@ -47,6 +47,9 @@ class Model:
     _grammar_only = 0 # a flag that tracks when we are forced to be executing only compiled grammars (like when we are inside a select)
     _throttle_refresh = 0 # a flag that tracks when we can throttle our display since we know future display calls are going to happen
 
+    fix_temperature = 0.0
+    fix_top_p = 1.0
+
     def __init__(self, tokens, bos_token_id=None, eos_token_id=None, echo=True, compute_log_probs=False):
         '''Build a new model object that represents a model in a given state.
         
@@ -624,6 +627,9 @@ class Model:
 
     def __call__(self, grammar, max_tokens=1000000, n=1, top_p=1, temperature=0.0, ensure_bos_token=True):
         assert n == 1, "Still need to add support for n > 1!"
+        #NOTE hacky fix
+        temperature = self.fix_temperature
+        top_p = self.fix_top_p
         
         # get our current context in bytes
         prompt = self._current_prompt()
@@ -800,13 +806,21 @@ class Model:
                 if current_temp == 0:
                     sampling_order = np.argsort(-logits) # we need numpy so the enumerate below does not get really slow...
                 else:
-                    assert top_p == 1, "Still need to add support for top_p!"
                     if torch:
                         logits = torch.tensor(logits)
                         torch.div(logits, current_temp, out=logits)
                         probs_torch = torch.nn.functional.softmax(logits, dim=-1)
-                        sampling_order = torch.multinomial(probs_torch, len(probs_torch)).cpu().numpy()
+                        # top_p sampling
+                        probs_sort, _ = torch.sort(probs_torch, dim=-1, descending=True)
+                        probs_sum = torch.cumsum(probs_sort, dim=-1)
+                        mask = probs_sum - probs_sort > top_p
+                        probs_sort[mask] = 0.0
+                        probs_sort.div_(probs_sort.sum(dim=-1, keepdim=True))
+                        sampling_order = (
+                            torch.multinomial(probs_sort, len(probs_sort)).cpu().numpy()
+                        )
                     else:
+                        assert top_p == 1, "Still need to add support for top_p!"
                         # this numpy version allows us to drop our dependence on pytorch...but it is way slower
                         if probs is None:
                             probs = softmax(logits / current_temp, axis=-1)
